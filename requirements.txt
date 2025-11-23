@@ -1,0 +1,11 @@
+langchain-core
+langchain-groq
+langchain-huggingface
+langchain-qdrant
+langchain-text-splitters
+langgraph
+pypdf
+qdrant-client
+sentence-transformers
+streamlit
+typing_extensions
