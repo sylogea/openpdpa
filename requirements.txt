@@ -6,7 +6,7 @@ langchain-text-splitters
 langgraph
 pypdf
 python-dotenv
-qdrant-client
+qdrant-client==1.15.1
 sentence-transformers
 streamlit
 typing_extensions

@@ -32,9 +32,9 @@ _qdrant_client = None
 
 
 def compute_pdf_paths():
-	pd_dir = pathlib.Path(QDRANT_LOCATION).resolve() / "collection" / QDRANT_COLLECTION
+	pd_dir = pathlib.Path(__file__).resolve().parent / "data" / "pdpa"
 	if not pd_dir.exists():
-		raise FileNotFoundError(f"Collection directory not found: {pd_dir}")
+		raise FileNotFoundError(f"PDF directory not found: {pd_dir}")
 	paths = sorted(pd_dir.glob("*.pdf"))
 	if not paths:
 		raise FileNotFoundError(f"No PDFs found in {pd_dir}")

@@ -7,7 +7,7 @@ from store import QDRANT_LOCATION, init_store
 
 
 ROOT = pathlib.Path(__file__).resolve().parent
-SNAPSHOT_NAME = "pdpa_store.zip"
+SNAPSHOT_NAME = "store.zip"
 
 
 def _build_store():
