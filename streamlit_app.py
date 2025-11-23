@@ -1,7 +1,10 @@
+import io
 import os
 import pathlib
 import streamlit
 import typing
+import urllib.error
+import urllib.request
 
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
@@ -10,7 +13,7 @@ from typing_extensions import TypedDict
 from generate import build_generate_node, make_prompt
 from moderate import build_moderate_node, make_moderation_prompt
 from retrieve import build_retrieve_node
-from store import DISTANCE_SENTINEL, MODERATION_SENTINEL, init_store_from_existing, init_store_from_pdfs, restore_qdrant_from_zip
+from store import DISTANCE_SENTINEL, MODERATION_SENTINEL, init_store_from_existing, restore_qdrant_from_zip
 
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -42,14 +45,36 @@ def build_graph(vector_store, llm_main, llm_mod, top_k_default: int, prompt_mode
 	return graph.compile()
 
 
+def _to_raw_github_url(url: str) -> str:
+	if "github.com" in url and "/blob/" in url:
+		prefix, rest = url.split("github.com/", 1)
+		user_repo, blob_part = rest.split("/blob/", 1)
+		return f"https://raw.githubusercontent.com/{user_repo}/{blob_part}"
+	return url
+
+
+def _get_store_url() -> str:
+	raw_url = os.environ.get("STORE_URL", "").strip()
+	if not raw_url:
+		raise RuntimeError("STORE_URL must be set as an environment variable or secret")
+	return _to_raw_github_url(raw_url)
+
+
+def _download_and_restore_store():
+	url = _get_store_url()
+	try:
+		with urllib.request.urlopen(url) as response:
+			data = response.read()
+	except urllib.error.URLError as error:
+		raise RuntimeError(f"Failed to download store from {url}: {error}") from error
+	restore_qdrant_from_zip(io.BytesIO(data))
+
+
 @streamlit.cache_resource(show_spinner="Loading PDPA knowledge base...")
-def get_app_state(initialise_mode: str):
-	if not initialise_mode:
-		raise RuntimeError("initialise_mode must be set")
-	if initialise_mode == "without_store":
-		_, vector_store = init_store_from_pdfs()
-	else:
-		_, vector_store = init_store_from_existing()
+def get_app_state():
+	_download_and_restore_store()
+
+	_, vector_store = init_store_from_existing()
 
 	generate_model_name = os.environ.get("CHAT_MODEL", "")
 	moderation_model_name = os.environ.get("MODERATION_MODEL", "")
@@ -92,50 +117,15 @@ def _normalise_answer_text(text: str) -> str:
 	return s
 
 
-def _ensure_phase_defaults():
-	if "phase" not in streamlit.session_state:
-		streamlit.session_state.phase = "choose_mode"
-	if "init_mode" not in streamlit.session_state:
-		streamlit.session_state.init_mode = ""
-
-
 def main():
 	streamlit.set_page_config(
 		page_title="OpenPDPA",
 		page_icon="🏛️"
 	)
 
-	_ensure_phase_defaults()
-	phase = streamlit.session_state.phase
-
-	if phase == "choose_mode":
-		col_with_store, col_without_store = streamlit.columns(2)
-		with col_with_store:
-			if streamlit.button("start with store"):
-				streamlit.session_state.phase = "upload_store"
-				streamlit.rerun()
-		with col_without_store:
-			if streamlit.button("start without store"):
-				streamlit.session_state.init_mode = "without_store"
-				streamlit.session_state.phase = "ready"
-				streamlit.rerun()
-		return
-
-	if phase == "upload_store":
-		uploaded_file = streamlit.file_uploader("", type="zip", label_visibility="collapsed")
-		if not uploaded_file:
-			return
-		uploaded_file.seek(0)
-		restore_qdrant_from_zip(uploaded_file)
-		streamlit.session_state.init_mode = "with_store"
-		streamlit.session_state.phase = "ready"
-		streamlit.rerun()
-		return
-
 	streamlit.title("OpenPDPA")
 
-	init_mode = streamlit.session_state.init_mode or "without_store"
-	graph, model_label, top_k_default = get_app_state(init_mode)
+	graph, model_label, top_k_default = get_app_state()
 
 	if "messages" not in streamlit.session_state:
 		streamlit.session_state.messages = []
