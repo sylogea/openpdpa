@@ -13,12 +13,14 @@ def make_prompt(model_name: str) -> ChatPromptTemplate:
 
 
 def build_generate_node(llm_main, prompt: ChatPromptTemplate, distance_sentinel: str) -> typing.Callable[[dict], dict]:
+	parser = StrOutputParser()
+
 	def generate_node(state: dict) -> dict:
 		if int(state.get("retrieved_count", 0)) == 0:
 			return {"answer": distance_sentinel}
 		max_tokens = max(1, int(state.get("max_output_tokens", 1024)))
 		model = llm_main.bind(max_tokens=max_tokens)
-		output = (prompt | model | StrOutputParser()).invoke({
+		output = (prompt | model | parser).invoke({
 			"question": state["query"],
 			"context": state.get("context", "")
 		})

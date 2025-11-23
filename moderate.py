@@ -12,8 +12,11 @@ def make_moderation_prompt() -> ChatPromptTemplate:
 
 
 def build_moderate_node(llm_mod, moderation_sentinel: str, prompt: ChatPromptTemplate) -> typing.Callable[[dict], dict]:
+	parser = StrOutputParser()
+	moderation_chain = prompt | llm_mod | parser
+
 	def moderate_node(state: dict) -> dict:
-		label = (prompt | llm_mod | StrOutputParser()).invoke({"question": state["query"]})
+		label = moderation_chain.invoke({"question": state["query"]})
 		text = str(label).strip().upper()
 		if "✅" in text:
 			return {"moderation_ok": True, "answer": ""}

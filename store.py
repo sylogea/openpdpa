@@ -1,7 +1,9 @@
 import hashlib
 import os
 import pathlib
+import shutil
 import uuid
+import zipfile
 
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -88,6 +90,11 @@ def _get_qdrant_client():
 	return _qdrant_client
 
 
+def _reset_qdrant_client():
+	global _qdrant_client
+	_qdrant_client = None
+
+
 def compute_stable_id(doc: Document) -> str:
 	base = f"{doc.metadata.get('source') or ''}\x1f{doc.page_content}"
 	return str(uuid.uuid5(uuid.NAMESPACE_URL, base))
@@ -121,7 +128,7 @@ def build_vector_store(docs, embeddings, recreate: bool):
 	return vector_store
 
 
-def init_store():
+def _create_embeddings():
 	embedding_model = os.environ.get("EMBEDDING_MODEL", "")
 	if not embedding_model:
 		raise RuntimeError("EMBEDDING_MODEL is not set")
@@ -129,6 +136,11 @@ def init_store():
 		model_name=embedding_model,
 		model_kwargs={"device": EMBEDDING_DEVICE}
 	)
+	return embedding_model, embeddings
+
+
+def init_store():
+	embedding_model, embeddings = _create_embeddings()
 	paths = compute_pdf_paths()
 	texts = read_pdf_texts(paths)
 	hash_value = compute_corpus_hash(texts, embedding_model)
@@ -136,14 +148,16 @@ def init_store():
 	previous_hash = cache_path.read_text(encoding="utf-8").strip() if cache_path.exists() else ""
 	client = _get_qdrant_client()
 	collection_exists = client.collection_exists(QDRANT_COLLECTION)
-	current_count = 0
-	if collection_exists:
+	rebuild = False
+	if not collection_exists:
+		rebuild = True
+	elif hash_value != previous_hash:
+		rebuild = True
+	else:
 		try:
-			current_count = client.count(collection_name=QDRANT_COLLECTION, exact=False).count
+			rebuild = client.count(collection_name=QDRANT_COLLECTION, exact=False).count == 0
 		except Exception:
-			collection_exists = False
-			current_count = 0
-	rebuild = hash_value != previous_hash or not collection_exists or current_count == 0
+			rebuild = True
 	if rebuild:
 		documents = []
 		for name, text in texts:
@@ -159,3 +173,33 @@ def init_store():
 		return embeddings, vector_store
 	vector_store = build_vector_store(None, embeddings, recreate=False)
 	return embeddings, vector_store
+
+
+def init_store_from_pdfs():
+	return init_store()
+
+
+def init_store_from_existing():
+	_, embeddings = _create_embeddings()
+	client = _get_qdrant_client()
+	if not client.collection_exists(QDRANT_COLLECTION):
+		raise RuntimeError("Qdrant collection not found; run a PDF build first or upload a valid snapshot")
+	vector_store = QdrantVectorStore(
+		client=client,
+		collection_name=QDRANT_COLLECTION,
+		embedding=embeddings
+	)
+	return embeddings, vector_store
+
+
+def restore_qdrant_from_zip(file_obj):
+	target_dir = pathlib.Path(QDRANT_LOCATION).resolve()
+	target_dir.mkdir(parents=True, exist_ok=True)
+	for child in target_dir.iterdir():
+		if child.is_dir():
+			shutil.rmtree(child)
+		else:
+			child.unlink()
+	with zipfile.ZipFile(file_obj) as archive:
+		archive.extractall(target_dir)
+	_reset_qdrant_client()
