@@ -21,7 +21,6 @@ class State(TypedDict):
 	context: str
 	answer: str
 	retrieved_count: int
-	max_output_tokens: int
 	top_k: int
 	moderation_ok: bool
 
@@ -47,7 +46,7 @@ def build_graph(vector_store, llm_main, llm_mod, top_k_default: int, prompt_mode
 def get_app_state(initialise_mode: str):
 	if not initialise_mode:
 		raise RuntimeError("initialise_mode must be set")
-	if initialise_mode == "users":
+	if initialise_mode == "without_store":
 		_, vector_store = init_store_from_pdfs()
 	else:
 		_, vector_store = init_store_from_existing()
@@ -93,32 +92,49 @@ def _normalise_answer_text(text: str) -> str:
 	return s
 
 
+def _ensure_phase_defaults():
+	if "phase" not in streamlit.session_state:
+		streamlit.session_state.phase = "choose_mode"
+	if "init_mode" not in streamlit.session_state:
+		streamlit.session_state.init_mode = ""
+
+
 def main():
 	streamlit.set_page_config(
 		page_title="OpenPDPA",
 		page_icon="🏛️"
 	)
 
+	_ensure_phase_defaults()
+	phase = streamlit.session_state.phase
+
+	if phase == "choose_mode":
+		col_with_store, col_without_store = streamlit.columns(2)
+		with col_with_store:
+			if streamlit.button("start with store"):
+				streamlit.session_state.phase = "upload_store"
+				streamlit.rerun()
+		with col_without_store:
+			if streamlit.button("start without store"):
+				streamlit.session_state.init_mode = "without_store"
+				streamlit.session_state.phase = "ready"
+				streamlit.rerun()
+		return
+
+	if phase == "upload_store":
+		uploaded_file = streamlit.file_uploader("", type="zip", label_visibility="collapsed")
+		if not uploaded_file:
+			return
+		uploaded_file.seek(0)
+		restore_qdrant_from_zip(uploaded_file)
+		streamlit.session_state.init_mode = "with_store"
+		streamlit.session_state.phase = "ready"
+		streamlit.rerun()
+		return
+
 	streamlit.title("OpenPDPA")
 
-	init_mode = streamlit.session_state.get("init_mode")
-	if not init_mode:
-		col_users, col_devs = streamlit.columns(2)
-		with col_users:
-			if streamlit.button("Start (users)"):
-				streamlit.session_state.init_mode = "users"
-				init_mode = "users"
-		with col_devs:
-			uploaded_file = streamlit.file_uploader("Upload (devs)", type="zip")
-			if uploaded_file:
-				if streamlit.button("Use uploaded store"):
-					uploaded_file.seek(0)
-					restore_qdrant_from_zip(uploaded_file)
-					streamlit.session_state.init_mode = "upload"
-					init_mode = "upload"
-		if not init_mode:
-			return
-
+	init_mode = streamlit.session_state.init_mode or "without_store"
 	graph, model_label, top_k_default = get_app_state(init_mode)
 
 	if "messages" not in streamlit.session_state:
