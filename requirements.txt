@@ -1,6 +1,6 @@
 langchain-core
-langchain-groq
 langchain-huggingface
+langchain-openai
 langchain-qdrant
 langchain-text-splitters
 langgraph
