@@ -7,7 +7,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
-from chat import build_generate_node, make_prompt
+from generate import build_generate_node, make_prompt
 from moderate import build_moderate_node, make_moderation_prompt
 from retrieve import build_retrieve_node
 from store import DISTANCE_SENTINEL, MODERATION_SENTINEL, init_store_from_existing, init_store_from_pdfs, restore_qdrant_from_zip
@@ -51,9 +51,9 @@ def get_app_state(initialise_mode: str):
 	else:
 		_, vector_store = init_store_from_existing()
 
-	chat_model_name = os.environ.get("CHAT_MODEL", "")
+	generate_model_name = os.environ.get("CHAT_MODEL", "")
 	moderation_model_name = os.environ.get("MODERATION_MODEL", "")
-	if not chat_model_name or not moderation_model_name:
+	if not generate_model_name or not moderation_model_name:
 		raise RuntimeError("CHAT_MODEL and MODERATION_MODEL must be set as environment variables or secrets")
 
 	openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "")
@@ -63,7 +63,7 @@ def get_app_state(initialise_mode: str):
 	openrouter_base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 	llm_main = ChatOpenAI(
-		model=chat_model_name,
+		model=generate_model_name,
 		api_key=openrouter_api_key,
 		base_url=openrouter_base_url,
 		temperature=0
